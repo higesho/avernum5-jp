@@ -43,7 +43,7 @@ def body():
 <header class="hero">
   <div class="wrap">
     <a class="parent-link" href="https://higesho.github.io/spiderweb-ja/">← スパイダーウェブ作品 日本語化（作品一覧）</a><br>
-    <span class="eyebrow">非公式ファン翻訳 · ベータ版 v0.9.0</span>
+    <span class="eyebrow">非公式ファン翻訳 · ベータ版 v0.9.1</span>
     <h1>Avernum 5<small>日本語化パッチ</small></h1>
     <p class="lead">
       女帝の暗殺を企てた反逆者ドリカスが、地下世界アヴァーナムへ逃げ込んだ。帝国の兵士として送り込まれたあなたは、彼を追って暗い洞窟の奥へ向かう——。
@@ -93,7 +93,7 @@ def body():
     <ol class="steps">
       <li>
         <h3>ダウンロード</h3>
-        <p><a href="{REPO}/releases/latest">リリースページ</a>から <code>Avernum5_JP_v0.9.0.zip</code> をダウンロードし、展開します。</p>
+        <p><a href="{REPO}/releases/latest">リリースページ</a>から <code>Avernum5_JP_v0.9.1.zip</code> をダウンロードし、展開します。</p>
       </li>
       <li>
         <h3>ゲームのフォルダにコピー</h3>

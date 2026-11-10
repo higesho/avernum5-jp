@@ -15,6 +15,7 @@ static void load_config(const char *dir)
     g_yAdjust = GetPrivateProfileIntA("font", "y_adjust", g_yAdjust, ini);
     g_bold = GetPrivateProfileIntA("font", "bold", g_bold, ini);
     g_lineGap = GetPrivateProfileIntA("font", "line_gap", g_lineGap, ini);
+    g_forceScan = GetPrivateProfileIntA("debug", "force_scan", 0, ini);
 }
 
 // ---------------------------------------------------------------- text encoding
@@ -157,16 +158,16 @@ static void load_string_table(const char *dir)
 }
 
 // ---------------------------------------------------------------- script token estimate
-// Before tokenizing a script, 0x45c660 estimates the token count to size the token array.
+// Before tokenizing a script, the game (0x45c660) estimates the token count to size the token array.
 // It counts every byte that is not a digit, letter, '_' or blank as its own token -- also
 // inside string literals -- so Japanese adds 2 per character, a long dialogue file overflows
 // the count, the allocation fails and the CRT aborts ("Runtime Error!" while loading
 // dialogue scripts). A literal is still one token, so classify bytes >= 0x80 like letters.
-//   0x45c695: cmp al,30h / jl 45c6a4 / cmp al,39h / jg 45c6a4   -> jmp tok_class_stub
-#define A4_TOKCLASS 0x45c695
-#define A4_TOK_DIGIT 0x45c69d
-#define A4_TOK_OTHER 0x45c6a4
-#define A4_TOK_LETTER 0x45c6c5
+//   tok_class (0x45c695): cmp al,30h / jl tok_other / cmp al,39h / jg tok_other -> jmp tok_class_stub
+#define A4_TOKCLASS g_hv[HV_TOK_CLASS]
+#define A4_TOK_DIGIT g_hv[HV_TOK_DIGIT]
+#define A4_TOK_OTHER g_hv[HV_TOK_OTHER]
+#define A4_TOK_LETTER g_hv[HV_TOK_LETTER]
 static const BYTE kTokClassOrig[8] = {0x3C, 0x30, 0x7C, 0x0B, 0x3C, 0x39, 0x7F, 0x07};
 static DWORD g_tokDigit, g_tokOther, g_tokLetter;
 
@@ -193,7 +194,7 @@ static void install_token_estimate_fix(void)
     DWORD old;
     if (memcmp(p, kTokClassOrig, sizeof kTokClassOrig) != 0)
     {
-        jp_log("token estimate fix skipped: unexpected bytes at %06x (not the Steam build?)\n", A4_TOKCLASS);
+        jp_log("token estimate fix skipped: unexpected bytes at %06x\n", A4_TOKCLASS);
         return;
     }
     g_tokDigit = (DWORD)VA(A4_TOK_DIGIT);
@@ -209,7 +210,8 @@ static void install_token_estimate_fix(void)
 }
 
 // ---------------------------------------------------------------- text drawing
-// Avernum 5 draws all text with its own bitmap fonts (G290-G294) through one routine:
+// Avernum 5 draws all text with its own bitmap fonts (G290-G294) through one routine
+// (addresses of the Steam build; the DLL finds them with src_hooks.c):
 //   0x46c890  draw_text(ecx = string; surface, mode, size, r, g, b, left, top, right, bottom)  cdecl
 //             mode 0 = wrap in the rect, 1 = one line centred, 2 = one line at left/top
 //             r, g, b are 0..31. Bytes above 0x7f are turned into blanks.
@@ -218,20 +220,20 @@ static void install_token_estimate_fix(void)
 // draw_text is replaced: the same layout, but EUC-JP characters are measured and drawn with GDI
 // on the same DirectDraw surface (IDirectDrawSurface::GetDC); ASCII runs still go through
 // draw_line so English looks the same.
-#define A5_DRAW_TEXT 0x46c890
-#define A5_DRAW_LINE 0x46d7d0
-#define A5_TEXT_WIDTH 0x46c740
-#define A5_CUR_FONT 0x55b140
-#define A5_LINE_H 0x55b034
-#define A5_PEN_X 0x55b144
-#define A5_PEN_Y 0x55b148
-#define A5_MAIN_SURF 0x55acc4
-#define A5_OFS_X 0x55b138 /* draw_text offsets the rect on the main surface */
-#define A5_OFS_Y 0x55b13c
-#define A5_BLIT_OX 0x55acd4 /* the blit adds this on the main surface */
-#define A5_BLIT_OY 0x55acd8
-#define A5_CLIP 0x4faee8 /* left, top, right, bottom (dwords) */
-#define A5_CHARMAP 0x49d2c8
+#define A5_DRAW_TEXT g_hv[HV_DRAW_TEXT]
+#define A5_DRAW_LINE g_hv[HV_DRAW_LINE]
+#define A5_TEXT_WIDTH g_hv[HV_TEXT_WIDTH]
+#define A5_CUR_FONT g_hv[HV_CUR_FONT]
+#define A5_LINE_H g_hv[HV_LINE_H]
+#define A5_PEN_X g_hv[HV_PEN_X]
+#define A5_PEN_Y g_hv[HV_PEN_Y]
+#define A5_MAIN_SURF g_hv[HV_MAIN_SURF]
+#define A5_OFS_X g_hv[HV_OFS_X] /* draw_text offsets the rect on the main surface */
+#define A5_OFS_Y g_hv[HV_OFS_Y]
+#define A5_BLIT_OX g_hv[HV_BLIT_OX] /* the blit adds this on the main surface */
+#define A5_BLIT_OY g_hv[HV_BLIT_OY]
+#define A5_CLIP g_hv[HV_CLIP] /* left, top, right, bottom (dwords) */
+#define A5_CHARMAP g_hv[HV_CHARMAP]
 static const BYTE kDrawTextOrig[] = {0x55, 0x8B, 0xEC, 0x81, 0xEC, 0x3C, 0x05, 0x00, 0x00};
 static const BYTE kTextWidthOrig[] = {0x55, 0x8B, 0xEC, 0x81, 0xEC};
 
@@ -467,11 +469,11 @@ static void __cdecl my_draw_text(DWORD surf, int mode, int size, int r, int g, i
     // font by size, as the original
     switch (size)
     {
-    case 14: *(DWORD *)VA(A5_CUR_FONT) = 0x49c988 - 0x400000 + (DWORD)g_base; break;
-    case 15: *(DWORD *)VA(A5_CUR_FONT) = 0x49c640 - 0x400000 + (DWORD)g_base; break;
-    case 16: case 18: size = 16; *(DWORD *)VA(A5_CUR_FONT) = 0x49cc98 - 0x400000 + (DWORD)g_base; break;
-    case 20: case 22: case 24: size = 24; *(DWORD *)VA(A5_CUR_FONT) = 0x49cfa8 - 0x400000 + (DWORD)g_base; break;
-    default: size = 12; *(DWORD *)VA(A5_CUR_FONT) = 0x49c328 - 0x400000 + (DWORD)g_base; break;
+    case 14: *(DWORD *)VA(A5_CUR_FONT) = (DWORD)VA(g_hv[HV_FONT14]); break;
+    case 15: *(DWORD *)VA(A5_CUR_FONT) = (DWORD)VA(g_hv[HV_FONT15]); break;
+    case 16: case 18: size = 16; *(DWORD *)VA(A5_CUR_FONT) = (DWORD)VA(g_hv[HV_FONT16]); break;
+    case 20: case 22: case 24: size = 24; *(DWORD *)VA(A5_CUR_FONT) = (DWORD)VA(g_hv[HV_FONT24]); break;
+    default: size = 12; *(DWORD *)VA(A5_CUR_FONT) = (DWORD)VA(g_hv[HV_FONT12]); break;
     }
     lh = size + 1;
     *(WORD *)VA(A5_LINE_H) = (WORD)lh;
@@ -558,7 +560,7 @@ static void jump_to(DWORD va, void *fn, const BYTE *expect, int len, const char 
     DWORD old;
     if (memcmp(p, expect, len) != 0)
     {
-        jp_log("%s: unexpected bytes at %06x (not the Steam build?), Japanese text is NOT drawn\n", name, va);
+        jp_log("%s: unexpected bytes at %06x, Japanese text is NOT drawn\n", name, va);
         return;
     }
     VirtualProtect(p, 5, PAGE_EXECUTE_READWRITE, &old);
@@ -612,6 +614,11 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
         g_base = (BYTE *)GetModuleHandleA(NULL);
         jp_log("Avernum 5 JP hook loaded. base=%p face=%s bold=%d size_adjust=%d y_adjust=%d line_gap=%d\n", g_base,
                g_fontFace, g_bold, g_sizeAdjust, g_yAdjust, g_lineGap);
+        if (!resolve_hooks("Avernum 5.exe"))
+        {
+            jp_log("this Avernum 5.exe is not supported: Japanese is turned off and the game runs unchanged\n");
+            return TRUE;
+        }
         install_text_hooks();
         install_token_estimate_fix();
         install_text_draw();
